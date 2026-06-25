@@ -13,8 +13,6 @@ The app stores data on the device. It does not require a server, account, login,
 - Ledger list with period filters and search
 - Reports summary by period and category
 - CSV export through Android's file picker
-- Soft-delete entries instead of removing them permanently from the database
-- Unit tests for core ledger sign rules
 
 ## Balance rule
 
@@ -64,7 +62,7 @@ Before using real data, add these test entries and verify the balance:
 
 This is an offline app. Local app data can be removed if the app is uninstalled or app storage is cleared. Export CSV before resetting the app or changing phones.
 
-Planned hardening items include PIN lock, encrypted backup/restore, PDF export, receipt attachments, and a full edit history screen.
+Planned hardening items include PIN lock, encrypted backup/restore, PDF export, receipt attachments, edit history, and signed release builds.
 
 ## Development stack
 
