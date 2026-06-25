@@ -3,7 +3,7 @@ package com.faheem.hisabkitab
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.faheem.hisabkitab.ui.LedgerApp
+import com.faheem.hisabkitab.ui.PolishedLedgerApp
 import com.faheem.hisabkitab.ui.theme.HisabKitabTheme
 
 class MainActivity : ComponentActivity() {
@@ -11,7 +11,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             HisabKitabTheme {
-                LedgerApp()
+                PolishedLedgerApp()
             }
         }
     }
