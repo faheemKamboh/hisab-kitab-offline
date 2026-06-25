@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +26,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -70,8 +70,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private val BrandGreen = Color(0xFF00796B)
+private val BrandDark = Color(0xFF004D40)
 private val BrandMint = Color(0xFFE4F4F1)
 private val SoftBackground = Color(0xFFF5FAF8)
+private val TextMuted = Color(0xFF607D75)
 private val DangerRed = Color(0xFFC62828)
 
 private val PaymentModes = listOf("Cash", "Bank Transfer", "JazzCash", "EasyPaisa", "Card", "Other")
@@ -89,6 +91,15 @@ private val CoreCategories = listOf(
     "Other"
 )
 
+private data class NavItem(val label: String, val mark: String)
+private val NavItems = listOf(
+    NavItem("Home", "H"),
+    NavItem("Ledger", "L"),
+    NavItem("Add", "+"),
+    NavItem("Reports", "R"),
+    NavItem("Settings", "S")
+)
+
 @Composable
 fun PolishedLedgerApp() {
     val context = LocalContext.current
@@ -97,6 +108,7 @@ fun PolishedLedgerApp() {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var addKind by rememberSaveable { mutableStateOf(TransactionKind.RECEIVED_FROM_BROTHER) }
 
     val csvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
@@ -120,21 +132,14 @@ fun PolishedLedgerApp() {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            if (selectedTab != 1) {
-                FloatingActionButton(onClick = { selectedTab = 1 }, containerColor = BrandGreen) {
-                    Text("+", color = Color.White, style = MaterialTheme.typography.headlineSmall)
-                }
-            }
-        },
         bottomBar = {
             NavigationBar(containerColor = Color.White) {
-                listOf("Home", "Add", "Ledger", "Reports").forEachIndexed { index, label ->
+                NavItems.forEachIndexed { index, item ->
                     NavigationBarItem(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        icon = { Text(label.first().toString(), fontWeight = FontWeight.Bold) },
-                        label = { Text(label) }
+                        icon = { NavMark(item.mark, selectedTab == index) },
+                        label = { Text(item.label) }
                     )
                 }
             }
@@ -147,10 +152,18 @@ fun PolishedLedgerApp() {
                 .padding(padding)
         ) {
             when (selectedTab) {
-                0 -> HomeScreen(uiState, onAdd = { selectedTab = 1 }, onLedger = { selectedTab = 2 })
-                1 -> AddTransactionScreen(viewModel, onSaved = { selectedTab = 0 })
-                2 -> LedgerListScreen(uiState, viewModel)
-                else -> ReportsScreen(uiState, onExportCsv = { csvLauncher.launch("hisab-kitab-ledger.csv") })
+                0 -> HomeScreen(
+                    uiState = uiState,
+                    onAdd = { kind ->
+                        addKind = kind
+                        selectedTab = 2
+                    },
+                    onLedger = { selectedTab = 1 }
+                )
+                1 -> LedgerListScreen(uiState, viewModel)
+                2 -> AddTransactionScreen(viewModel, initialKind = addKind, onSaved = { selectedTab = 0 })
+                3 -> ReportsScreen(uiState, onExportCsv = { csvLauncher.launch("hisab-kitab-ledger.csv") })
+                else -> SettingsScreen()
             }
         }
     }
@@ -165,7 +178,11 @@ private fun rememberPolishedLedgerViewModel(context: Context): LedgerViewModel {
 }
 
 @Composable
-private fun HomeScreen(uiState: LedgerUiState, onAdd: () -> Unit, onLedger: () -> Unit) {
+private fun HomeScreen(
+    uiState: LedgerUiState,
+    onAdd: (TransactionKind) -> Unit,
+    onLedger: () -> Unit
+) {
     val running = remember(uiState.allTransactions) { runningBalances(uiState.allTransactions) }
     LazyColumn(
         modifier = Modifier
@@ -173,28 +190,34 @@ private fun HomeScreen(uiState: LedgerUiState, onAdd: () -> Unit, onLedger: () -
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { BrandHeader("Hisab Kitab", "Offline settlement ledger") }
+        item { BrandHeader("Hisab Kitab", "Offline accounting ledger") }
         item { BalanceCard(uiState.currentBalanceMinor) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                MetricTile("Today Received", Money.format(abs(uiState.todaySummary.negativeImpactMinor)), "cash in", Modifier.weight(1f))
-                MetricTile("Today Given", Money.format(uiState.todaySummary.positiveImpactMinor), "cash out", Modifier.weight(1f))
+                MetricTile("Today Received", Money.format(abs(uiState.todaySummary.negativeImpactMinor)), "cash received", Modifier.weight(1f))
+                MetricTile("Today Given", Money.format(uiState.todaySummary.positiveImpactMinor), "cash returned/paid", Modifier.weight(1f))
             }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 MetricTile("Month Net", Money.format(uiState.monthSummary.netMovementMinor, showSign = true), "movement", Modifier.weight(1f))
-                MetricTile("Total Entries", uiState.allTransactions.size.toString(), "records", Modifier.weight(1f))
+                MetricTile("Entries", uiState.allTransactions.size.toString(), "records", Modifier.weight(1f))
             }
         }
         item { SectionTitle("Quick actions") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                ActionCard("Add Entry", "record cash", "A", onAdd, Modifier.weight(1f))
-                ActionCard("View Ledger", "running balance", "L", onLedger, Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ActionCard("Received", "from brother/shop", "In", { onAdd(TransactionKind.RECEIVED_FROM_BROTHER) }, Modifier.weight(1f))
+                    ActionCard("Given", "cash returned", "Out", { onAdd(TransactionKind.GIVEN_TO_BROTHER) }, Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ActionCard("Expense", "paid by me", "Exp", { onAdd(TransactionKind.EXPENSE_PAID_BY_ME) }, Modifier.weight(1f))
+                    ActionCard("Ledger", "running balance", "Book", onLedger, Modifier.weight(1f))
+                }
             }
         }
-        item { SectionHeader("Recent transactions", "latest 5") }
+        item { SectionHeader("Recent transactions", "latest") }
         if (uiState.recentTransactions.isEmpty()) {
             item { EmptyCard("No entries yet. Add your first transaction to start the ledger.") }
         } else {
@@ -206,12 +229,18 @@ private fun HomeScreen(uiState: LedgerUiState, onAdd: () -> Unit, onLedger: () -
 }
 
 @Composable
-private fun AddTransactionScreen(viewModel: LedgerViewModel, onSaved: () -> Unit) {
-    var selectedKind by rememberSaveable { mutableStateOf(TransactionKind.RECEIVED_FROM_BROTHER) }
+private fun AddTransactionScreen(viewModel: LedgerViewModel, initialKind: TransactionKind, onSaved: () -> Unit) {
+    var selectedKind by rememberSaveable { mutableStateOf(initialKind) }
     var amount by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf(TransactionKind.RECEIVED_FROM_BROTHER.defaultCategory) }
+    var category by rememberSaveable { mutableStateOf(initialKind.defaultCategory) }
     var paymentMode by rememberSaveable { mutableStateOf("Cash") }
     var notes by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(initialKind) {
+        selectedKind = initialKind
+        category = initialKind.defaultCategory
+    }
+
     val categoryOptions = remember(selectedKind) { categoryOptionsFor(selectedKind) }
 
     fun save(navigate: Boolean) {
@@ -237,7 +266,7 @@ private fun AddTransactionScreen(viewModel: LedgerViewModel, onSaved: () -> Unit
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { BrandHeader("Add Transaction", "Guided entry to reduce mistakes") }
+        item { BrandHeader("Add Transaction", "Controlled entry for clean records") }
         item { SectionTitle("Transaction type") }
         item {
             ChoiceChips(
@@ -271,7 +300,7 @@ private fun AddTransactionScreen(viewModel: LedgerViewModel, onSaved: () -> Unit
                 value = notes,
                 onValueChange = { notes = it.take(200) },
                 label = { Text("Notes") },
-                placeholder = { Text("Short reference, supplier, reason, or settlement note") },
+                placeholder = { Text("Supplier, purpose, settlement note, or short reference") },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -294,13 +323,13 @@ private fun LedgerListScreen(uiState: LedgerUiState, viewModel: LedgerViewModel)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { BrandHeader("Ledger", "Running balance and filters") }
+        item { BrandHeader("Ledger", "Running balance") }
         item { PeriodChips(uiState.selectedRange, viewModel::selectRange) }
         item {
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = viewModel::setSearchQuery,
-                label = { Text("Search notes, category, payment mode") },
+                label = { Text("Search type, category, mode, or notes") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -326,6 +355,7 @@ private fun ReportsScreen(uiState: LedgerUiState, onExportCsv: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { BrandHeader("Reports", "Summaries and export") }
+        item { PeriodChips(uiState.selectedRange, onSelect = {}) }
         item { LedgerSummaryCard(uiState.summary) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
@@ -340,7 +370,22 @@ private fun ReportsScreen(uiState: LedgerUiState, onExportCsv: () -> Unit) {
             items(categoryTotals) { item -> CategoryBar(item) }
         }
         item { Button(onClick = onExportCsv, modifier = Modifier.fillMaxWidth()) { Text("Export CSV") } }
-        item { InfoCard("CSV export is available now. PDF export, PIN lock, backup/restore, receipt attachments, and edit history are planned next.") }
+    }
+}
+
+@Composable
+private fun SettingsScreen() {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { BrandHeader("Settings", "Data safety and app status") }
+        item { InfoCard("The app is offline-first. Your ledger stays on this phone unless you export it.") }
+        item { StaticField("Current backup option", "CSV export from Reports") }
+        item { StaticField("Recommended before real use", "Test with fake entries, export CSV, close and reopen the app, then verify balances.") }
+        item { StaticField("Planned hardening", "PIN lock, restore backup, PDF export, receipt attachments, edit history, and signed release APK.") }
     }
 }
 
@@ -351,7 +396,7 @@ private fun BrandHeader(title: String, subtitle: String) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF607D75))
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = TextMuted)
         }
         StatusPill("Offline")
     }
@@ -366,7 +411,25 @@ private fun BrandMark() {
             .background(Brush.linearGradient(listOf(BrandGreen, Color(0xFF26A69A)))),
         contentAlignment = Alignment.Center
     ) {
-        Text("HK", color = Color.White, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("HK", color = Color.White, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+            Box(modifier = Modifier.size(width = 20.dp, height = 3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.82f)))
+        }
+    }
+}
+
+@Composable
+private fun NavMark(mark: String, selected: Boolean) {
+    val color = if (selected) Color.White else BrandGreen
+    val background = if (selected) BrandGreen else BrandMint
+    Box(
+        modifier = Modifier
+            .size(if (mark == "+") 38.dp else 30.dp)
+            .clip(CircleShape)
+            .background(background),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(mark, color = color, fontWeight = FontWeight.Black)
     }
 }
 
@@ -377,22 +440,16 @@ private fun BalanceCard(balanceMinor: Long) {
         balanceMinor < 0 -> "You owe brother/shop"
         else -> "Settled"
     }
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Box(
+    Card(shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = BrandGreen)) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.linearGradient(listOf(BrandGreen, Color(0xFF004D40))))
-                .padding(22.dp)
+                .background(Brush.linearGradient(listOf(BrandGreen, BrandDark)))
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Current Balance", color = Color.White.copy(alpha = 0.82f))
-                Text(Money.format(balanceMinor), color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
-                StatusPill(status, dark = true)
-            }
+            Text("Current Balance", color = Color.White.copy(alpha = 0.82f))
+            Text(Money.format(balanceMinor), color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
+            StatusPill(status, dark = true)
         }
     }
 }
@@ -401,24 +458,28 @@ private fun BalanceCard(balanceMinor: Long) {
 private fun MetricTile(title: String, value: String, caption: String, modifier: Modifier = Modifier) {
     Card(shape = RoundedCornerShape(20.dp), modifier = modifier, colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium, color = Color(0xFF607D75))
+            Text(title, style = MaterialTheme.typography.labelMedium, color = TextMuted)
             Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(caption, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8EA39D))
+            Text(caption, style = MaterialTheme.typography.labelSmall, color = TextMuted.copy(alpha = 0.72f))
         }
     }
 }
 
 @Composable
 private fun ActionCard(title: String, subtitle: String, marker: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Card(onClick = onClick, shape = RoundedCornerShape(22.dp), modifier = modifier, colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        modifier = modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(BrandMint), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.size(42.dp).clip(CircleShape).background(BrandMint), contentAlignment = Alignment.Center) {
                 Text(marker, color = BrandGreen, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(title, fontWeight = FontWeight.Bold)
-                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = Color(0xFF607D75))
+                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = TextMuted)
             }
         }
     }
@@ -432,13 +493,13 @@ private fun TransactionRow(transaction: LedgerTransaction, runningBalance: Long?
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(transaction.kind.shortLabel, fontWeight = FontWeight.Bold)
-                    Text(DateUtils.formatShortDateTime(transaction.occurredAt), style = MaterialTheme.typography.labelMedium, color = Color(0xFF607D75))
+                    Text(DateUtils.formatShortDateTime(transaction.occurredAt), style = MaterialTheme.typography.labelMedium, color = TextMuted)
                 }
                 Text(Money.format(transaction.impactMinor, showSign = true), color = impactColor, fontWeight = FontWeight.Black)
             }
             Text("${transaction.category} · ${transaction.paymentMode}", color = Color(0xFF455A64))
-            if (transaction.notes.isNotBlank()) Text(transaction.notes, color = Color(0xFF607D75), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            runningBalance?.let { Text("Balance: ${Money.format(it)}", style = MaterialTheme.typography.labelMedium, color = Color(0xFF607D75)) }
+            if (transaction.notes.isNotBlank()) Text(transaction.notes, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            runningBalance?.let { Text("Balance: ${Money.format(it)}", style = MaterialTheme.typography.labelMedium, color = TextMuted) }
         }
     }
 }
@@ -459,7 +520,7 @@ private fun LedgerSummaryCard(summary: LedgerSummary) {
 @Composable
 private fun SummaryLine(label: String, value: String, valueColor: Color = Color(0xFF17201D)) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color(0xFF607D75))
+        Text(label, color = TextMuted)
         Text(value, color = valueColor, fontWeight = FontWeight.Bold)
     }
 }
@@ -486,7 +547,7 @@ private fun PeriodChips(selected: DateRangePreset, onSelect: (DateRangePreset) -
 private fun StaticField(label: String, value: String) {
     Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = Color(0xFF607D75))
+            Text(label, style = MaterialTheme.typography.labelMedium, color = TextMuted)
             Text(value, fontWeight = FontWeight.SemiBold)
         }
     }
@@ -495,14 +556,14 @@ private fun StaticField(label: String, value: String) {
 @Composable
 private fun InfoCard(text: String) {
     Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = BrandMint), modifier = Modifier.fillMaxWidth()) {
-        Text(text, modifier = Modifier.padding(16.dp), color = Color(0xFF004D40))
+        Text(text, modifier = Modifier.padding(16.dp), color = BrandDark)
     }
 }
 
 @Composable
 private fun EmptyCard(text: String) {
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth()) {
-        Text(text, modifier = Modifier.padding(18.dp), color = Color(0xFF607D75))
+        Text(text, modifier = Modifier.padding(18.dp), color = TextMuted)
     }
 }
 
@@ -515,7 +576,7 @@ private fun SectionTitle(title: String) {
 private fun SectionHeader(title: String, trailing: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         SectionTitle(title)
-        Text(trailing, style = MaterialTheme.typography.labelMedium, color = Color(0xFF607D75))
+        Text(trailing, style = MaterialTheme.typography.labelMedium, color = TextMuted)
     }
 }
 
@@ -536,7 +597,12 @@ private fun CategoryBar(item: CategoryTotal) {
                 Text(item.category, fontWeight = FontWeight.SemiBold)
                 Text(Money.format(item.amountMinor), fontWeight = FontWeight.Bold)
             }
-            LinearProgressIndicator(progress = { item.fraction }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape), color = BrandGreen, trackColor = BrandMint)
+            LinearProgressIndicator(
+                progress = { item.fraction },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                color = BrandGreen,
+                trackColor = BrandMint
+            )
         }
     }
 }
